@@ -39,20 +39,22 @@ class ConfigurationManager:
     
     def get_model_trainer_config(self) -> ModelTrainerConfig:
         config = self.config.model_trainer
+        data_prep_config = self.config.data_preparation
         params = self.params
         create_directories([config.root_dir])
 
         model_trainer_config = ModelTrainerConfig(
-            root_dir=Path(config.root_dir),
-            trained_model_path=Path(config.trained_model_path),
-            model_name=config.model_name,
-            image_size=params.IMAGE_SIZE,
-            learning_rate=params.LEARNING_RATE,
-            batch_size=params.BATCH_SIZE,
-            num_train_epochs=params.NUM_TRAIN_EPOCHS,
-            weight_decay=params.WEIGHT_DECAY,
-            warmup_steps=params.WARMUP_STEPS,
-            test_split_size=params.TEST_SPLIT_SIZE,
-            random_state=params.RANDOM_STATE
+        root_dir=Path(config.root_dir),
+        data_path=Path(data_prep_config.data_path),
+        trained_model_path=Path(config.trained_model_path),
+        model_name=config.model_name,
+        image_size=int(params.IMAGE_SIZE),
+        learning_rate=float(params.LEARNING_RATE), # <<< CORRECTED
+        batch_size=int(params.BATCH_SIZE),
+        num_train_epochs=int(params.NUM_TRAIN_EPOCHS),
+        weight_decay=float(params.WEIGHT_DECAY), # <<< CORRECTED
+        warmup_steps=int(params.WARMUP_STEPS),
+        test_split_size=float(params.TEST_SPLIT_SIZE), # <<< CORRECTED
+        random_state=int(params.RANDOM_STATE)
         )
         return model_trainer_config

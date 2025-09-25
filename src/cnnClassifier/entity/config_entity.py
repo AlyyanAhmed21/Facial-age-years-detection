@@ -17,6 +17,7 @@ class DataPreparationConfig:
 @dataclass(frozen=True)
 class ModelTrainerConfig:
     root_dir: Path
+    data_path: Path
     trained_model_path: Path
     model_name: str
     image_size: int

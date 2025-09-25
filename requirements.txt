@@ -5,13 +5,14 @@ torchvision==0.16.0+cu118
 torchaudio==2.1.0
 
 # Pin NumPy to a version compatible with Torch 2.1.0
-numpy<2.0
+numpy>=1.23,<2.0
 
 # Hugging Face
-transformers
+transformers==4.36.2
+tokenizers==0.15.0
 datasets>=2.14.5
 evaluate
-accelerate>=0.27
+accelerate>=0.25
 
 # MLOps and Utilities
 mlflow
@@ -29,6 +30,7 @@ imblearn
 streamlit
 opencv-python
 mtcnn
+tensorflow==2.15.0 
 
 # AWS Deployment
 boto3

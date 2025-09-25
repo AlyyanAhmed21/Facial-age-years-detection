@@ -15,4 +15,4 @@ model_trainer:
   root_dir: artifacts/model_trainer
   trained_model_path: artifacts/model_trainer/facial_age_detector_model
   # Using EfficientFormer-L1, a much lighter model than ViT
-  model_name: "snap-research/efficientformer-l1"
+  model_name: "snap-research/efficientformer-l1-300"

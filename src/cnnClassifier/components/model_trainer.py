@@ -2,32 +2,62 @@ import torch
 import pandas as pd
 from pathlib import Path
 from tqdm import tqdm
+from functools import partial
 from datasets import Dataset, Image, ClassLabel
 from imblearn.over_sampling import RandomOverSampler
 from transformers import (
     EfficientFormerImageProcessor, 
     EfficientFormerForImageClassification, 
     TrainingArguments, 
-    Trainer,
-    DefaultDataCollator
+    Trainer
 )
 from torchvision.transforms import (
     Compose, 
     Normalize, 
     RandomRotation, 
-    RandomResizedCrop, 
     RandomHorizontalFlip,
     Resize,
     ToTensor
 )
 import evaluate
 from cnnClassifier.entity.config_entity import ModelTrainerConfig
+from cnnClassifier import logger
+
+# ==============================================================================
+# TOP-LEVEL FUNCTION DEFINITIONS (FOR PICKLING)
+# ==============================================================================
+
+def apply_transforms(batch, processor, transform_pipeline):
+    """Applies a given transformation pipeline to a batch of images."""
+    # Create the normalization transform with stats from the processor
+    normalize = Normalize(mean=processor.image_mean, std=processor.image_std)
+    
+    # Combine the base transforms with normalization
+    full_transforms = Compose([*transform_pipeline.transforms, normalize])
+    
+    # Apply to each image in the batch
+    batch["pixel_values"] = [full_transforms(img.convert("RGB")) for img in batch["image"]]
+    return batch
+
+def collate_fn(batch):
+    """A custom collate function for image classification."""
+    return {
+        'pixel_values': torch.stack([x['pixel_values'] for x in batch]),
+        'labels': torch.tensor([x['label'] for x in batch])
+    }
+
+def compute_metrics(eval_pred):
+    """Computes accuracy metric for evaluation."""
+    accuracy = evaluate.load("accuracy")
+    predictions, label_ids = eval_pred
+    predicted_labels = predictions.argmax(axis=1)
+    return accuracy.compute(predictions=predicted_labels, references=label_ids)
+
+# ==============================================================================
 
 class ModelTrainer:
     def __init__(self, config: ModelTrainerConfig):
         self.config = config
-        self.label2id = None
-        self.id2label = None
 
     def _prepare_data(self):
         logger.info("Preparing data...")
@@ -60,13 +90,11 @@ class ModelTrainer:
         file_names, labels = [], []
         data_path = Path(self.config.data_path)
         for file in tqdm(sorted(data_path.glob('*/*.*'))):
-            label = str(file).split('/')[-2]
+            label = file.parent.name
             labels.append(label_dict[label])
             file_names.append(str(file))
 
         df = pd.DataFrame.from_dict({"image": file_names, "label": labels})
-        
-        # Random oversampling
         ros = RandomOverSampler(random_state=self.config.random_state)
         df_resampled, y_resampled = ros.fit_resample(df[['image']], df['label'])
         df = pd.concat([df_resampled, y_resampled], axis=1)
@@ -74,71 +102,53 @@ class ModelTrainer:
         dataset = Dataset.from_pandas(df).cast_column("image", Image())
         
         labels_list = sorted(list(set(labels)))
-        self.label2id = {label: i for i, label in enumerate(labels_list)}
-        self.id2label = {i: label for i, label in enumerate(labels_list)}
+        label2id = {label: i for i, label in enumerate(labels_list)}
+        id2label = {i: label for i, label in enumerate(labels_list)}
         
         ClassLabels = ClassLabel(num_classes=len(labels_list), names=labels_list)
         dataset = dataset.map(lambda x: {'label': ClassLabels.str2int(x['label'])}, batched=True)
         dataset = dataset.cast_column('label', ClassLabels)
         
-        return dataset.train_test_split(test_size=self.config.test_split_size, shuffle=True, stratify_by_column="label")
+        split_dataset = dataset.train_test_split(test_size=self.config.test_split_size, shuffle=True, stratify_by_column="label")
+        return split_dataset, id2label, label2id
 
     def train(self):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Using device: {device}")
         
-        split_dataset = self._prepare_data()
+        split_dataset, id2label, label2id = self._prepare_data()
         train_data = split_dataset['train']
         test_data = split_dataset['test']
         
         processor = EfficientFormerImageProcessor.from_pretrained(self.config.model_name)
         
-        image_mean, image_std = processor.image_mean, processor.image_std
-        size = self.config.image_size
-        
-        normalize = Normalize(mean=image_mean, std=image_std)
+        # Define base transforms (without normalization)
         _train_transforms = Compose([
-            Resize((size, size)),
+            Resize((self.config.image_size, self.config.image_size)),
             RandomRotation(15),
             RandomHorizontalFlip(0.5),
             ToTensor(),
-            normalize
         ])
         _val_transforms = Compose([
-            Resize((size, size)),
+            Resize((self.config.image_size, self.config.image_size)),
             ToTensor(),
-            normalize
         ])
 
-        def train_transforms(examples):
-            examples['pixel_values'] = [_train_transforms(image.convert("RGB")) for image in examples['image']]
-            return examples
+        # Use functools.partial to create specialized versions of our top-level function
+        # This is a pickle-safe way to pass extra arguments (processor, transforms)
+        train_transform_func = partial(apply_transforms, processor=processor, transform_pipeline=_train_transforms)
+        val_transform_func = partial(apply_transforms, processor=processor, transform_pipeline=_val_transforms)
 
-        def val_transforms(examples):
-            examples['pixel_values'] = [_val_transforms(image.convert("RGB")) for image in examples['image']]
-            return examples
-
-        train_data.set_transform(train_transforms)
-        test_data.set_transform(val_transforms)
-
-        def collate_fn(examples):
-            pixel_values = torch.stack([example["pixel_values"] for example in examples])
-            labels = torch.tensor([example['label'] for example in examples])
-            return {"pixel_values": pixel_values, "labels": labels}
-
+        train_data.set_transform(train_transform_func)
+        test_data.set_transform(val_transform_func)
+        
         model = EfficientFormerForImageClassification.from_pretrained(
             self.config.model_name,
-            num_labels=len(self.id2label),
-            id2label=self.id2label,
-            label2id=self.label2id,
-            ignore_mismatched_sizes=True # Important for transfer learning
+            num_labels=len(id2label),
+            id2label=id2label,
+            label2id=label2id,
+            ignore_mismatched_sizes=True
         ).to(device)
-
-        accuracy = evaluate.load("accuracy")
-        def compute_metrics(eval_pred):
-            predictions, label_ids = eval_pred
-            predicted_labels = predictions.argmax(axis=1)
-            return accuracy.compute(predictions=predicted_labels, references=label_ids)
 
         args = TrainingArguments(
             output_dir=self.config.root_dir,
@@ -154,6 +164,8 @@ class ModelTrainer:
             load_best_model_at_end=True,
             metric_for_best_model="accuracy",
             save_total_limit=1,
+            remove_unused_columns=False,
+            dataloader_num_workers=4,
             report_to="none"
         )
 
