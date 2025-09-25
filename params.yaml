@@ -1,0 +1,9 @@
+# Training Parameters
+IMAGE_SIZE: 224 # EfficientFormer-L1 was trained on 224x224
+LEARNING_RATE: 2e-5
+BATCH_SIZE: 32
+NUM_TRAIN_EPOCHS: 20 # Adjust as needed
+WEIGHT_DECAY: 0.01
+WARMUP_STEPS: 100
+TEST_SPLIT_SIZE: 0.2
+RANDOM_STATE: 42
