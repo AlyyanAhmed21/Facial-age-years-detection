@@ -1,6 +1,10 @@
 from cnnClassifier.constants import *
 from cnnClassifier.utils.common import read_yaml, create_directories
-from cnnClassifier.entity.config_entity import DataIngestionConfig, DataPreparationConfig, ModelTrainerConfig
+from cnnClassifier.entity.config_entity import (
+    DataIngestionConfig,
+    DataPreparationConfig,
+    MultiTaskModelTrainerConfig # <-- Import the new one
+)
 
 class ConfigurationManager:
     def __init__(
@@ -15,46 +19,45 @@ class ConfigurationManager:
 
     def get_data_ingestion_config(self) -> DataIngestionConfig:
         config = self.config.data_ingestion
-
         create_directories([config.root_dir])
 
         data_ingestion_config = DataIngestionConfig(
             root_dir=config.root_dir,
             dataset_name=config.dataset_name,
-            local_data_file=config.local_data_file,
-            unzip_dir=config.unzip_dir
+            dataset_config=config.dataset_config, 
+            local_data_dir=config.local_data_dir
         )
         return data_ingestion_config
-
-    def get_data_preparation_config(self) -> DataPreparationConfig:
+    
+    def get_data_preparation_config(self) -> DataPreparationConfig: # <<< NEW METHOD
         config = self.config.data_preparation
+
         create_directories([config.root_dir])
-        
+
         data_preparation_config = DataPreparationConfig(
             root_dir=config.root_dir,
-            data_path=config.data_path,
-            dataset_name=config.dataset_name
+            raw_data_path=config.raw_data_path,
+            cleaned_data_path=config.cleaned_data_path
         )
         return data_preparation_config
-    
-    def get_model_trainer_config(self) -> ModelTrainerConfig:
-        config = self.config.model_trainer
-        data_prep_config = self.config.data_preparation
+
+    def get_multi_task_model_trainer_config(self) -> MultiTaskModelTrainerConfig:
+        config = self.config.multi_task_model_trainer
         params = self.params
         create_directories([config.root_dir])
 
-        model_trainer_config = ModelTrainerConfig(
-        root_dir=Path(config.root_dir),
-        data_path=Path(data_prep_config.data_path),
-        trained_model_path=Path(config.trained_model_path),
-        model_name=config.model_name,
-        image_size=int(params.IMAGE_SIZE),
-        learning_rate=float(params.LEARNING_RATE), # <<< CORRECTED
-        batch_size=int(params.BATCH_SIZE),
-        num_train_epochs=int(params.NUM_TRAIN_EPOCHS),
-        weight_decay=float(params.WEIGHT_DECAY), # <<< CORRECTED
-        warmup_steps=int(params.WARMUP_STEPS),
-        test_split_size=float(params.TEST_SPLIT_SIZE), # <<< CORRECTED
-        random_state=int(params.RANDOM_STATE)
+        multi_task_model_trainer_config = MultiTaskModelTrainerConfig(
+            root_dir=Path(config.root_dir),
+            data_path=config.data_path,
+            trained_model_path=Path(config.trained_model_path),
+            model_name=config.model_name,
+            image_size=int(params.IMAGE_SIZE),
+            learning_rate=float(params.LEARNING_RATE),
+            batch_size=int(params.BATCH_SIZE),
+            num_train_epochs=int(params.NUM_TRAIN_EPOCHS),
+            weight_decay=float(params.WEIGHT_DECAY),
+            warmup_steps=int(params.WARMUP_STEPS),
+            test_split_size=float(params.TEST_SPLIT_SIZE),
+            random_state=int(params.RANDOM_STATE)
         )
-        return model_trainer_config
+        return multi_task_model_trainer_config

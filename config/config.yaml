@@ -2,17 +2,22 @@ artifacts_root: artifacts
 
 data_ingestion:
   root_dir: artifacts/data_ingestion
-  dataset_name: frabbisw/facial-age
-  local_data_file: artifacts/data_ingestion/data.zip
-  unzip_dir: artifacts/data_ingestion
+  dataset_name: "HuggingFaceM4/FairFace"
+  dataset_config: "0.25"
+  local_data_dir: artifacts/data_ingestion/dataset
 
 data_preparation:
   root_dir: artifacts/data_preparation
-  data_path: artifacts/data_ingestion/face_age
-  dataset_name: facial_age_prepared_dataset
+  # Path to the raw dataset downloaded by the previous stage
+  raw_data_path: artifacts/data_ingestion/dataset
+  # Path where we will save the cleaned dataframe
+  cleaned_data_path: artifacts/data_preparation/fairface_cleaned.csv
 
-model_trainer:
-  root_dir: artifacts/model_trainer
-  trained_model_path: artifacts/model_trainer/facial_age_detector_model
-  # Using EfficientFormer-L1, a much lighter model than ViT
-  model_name: "snap-research/efficientformer-l1-300"
+multi_task_model_trainer:
+  root_dir: artifacts/multi_task_model_trainer
+  # The path to our cleaned CSV file from the previous stage
+  data_path: artifacts/data_preparation/fairface_cleaned.csv
+  # Where to save the final multi-task model
+  trained_model_path: artifacts/multi_task_model_trainer/facial_demographics_model
+  # The base model from Hugging Face
+  model_name: "google/efficientnet-b2"

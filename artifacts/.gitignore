@@ -1,1 +1,4 @@
 /model_trainer
+/data_ingestion
+/data_preparation
+/multi_task_model_trainer

@@ -4,17 +4,28 @@ stages:
     deps:
       - src/cnnClassifier/pipeline/stage_01_data_ingestion.py
       - src/cnnClassifier/components/data_ingestion.py
-      - config/config.yaml
+      - src/cnnClassifier/config/configuration.py
     outs:
-      - artifacts/data_ingestion
+      - artifacts/data_ingestion # This output now includes the saved dataset
 
-  model_training:
-    cmd: python src/cnnClassifier/pipeline/stage_02_model_training.py
+  data_preparation: # <<< NEW STAGE
+    cmd: python src/cnnClassifier/pipeline/stage_02_data_preparation.py
     deps:
-      - src/cnnClassifier/pipeline/stage_02_model_training.py
-      - src/cnnClassifier/components/model_trainer.py
+      - src/cnnClassifier/pipeline/stage_02_data_preparation.py
+      - src/cnnClassifier/components/data_preparation.py
+      - config/config.yaml
+      - artifacts/data_ingestion/dataset # Depends on the output of the first stage
+    outs:
+      - artifacts/data_preparation
+
+  multi_task_model_training: # <<< NEW STAGE
+    cmd: python src/cnnClassifier/pipeline/stage_03_multi_task_model_training.py
+    deps:
+      - src/cnnClassifier/pipeline/stage_03_multi_task_model_training.py
+      - src/cnnClassifier/components/multi_task_model_trainer.py
       - config/config.yaml
       - params.yaml
-      - artifacts/data_ingestion  # Depends on the output of the previous stage
+      - artifacts/data_preparation
     outs:
-      - artifacts/model_trainer
+      - artifacts/multi_task_model_trainer
+      

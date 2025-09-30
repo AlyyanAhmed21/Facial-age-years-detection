@@ -5,19 +5,21 @@ from pathlib import Path
 class DataIngestionConfig:
     root_dir: Path
     dataset_name: str
-    local_data_file: Path
-    unzip_dir: Path
+    local_data_dir: Path
+    dataset_config: str
 
 @dataclass(frozen=True)
-class DataPreparationConfig:
+class DataPreparationConfig: # <<< NEW DATACLASS
     root_dir: Path
-    data_path: Path
-    dataset_name: str
+    raw_data_path: Path
+    cleaned_data_path: Path
+
+# ... (other configs are above)
 
 @dataclass(frozen=True)
-class ModelTrainerConfig:
+class MultiTaskModelTrainerConfig:
     root_dir: Path
-    data_path: Path
+    data_path: str
     trained_model_path: Path
     model_name: str
     image_size: int

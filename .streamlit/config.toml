@@ -1,0 +1,15 @@
+[theme]
+# Primary accent color (a professional blue, similar to your example)
+primaryColor="#4A90E2" 
+
+# Main background color
+backgroundColor="#F0F4F8"
+
+# Sidebar and card background color
+secondaryBackgroundColor="#FFFFFF"
+
+# Default text color
+textColor="#31333F"
+
+# Font
+font="sans serif"

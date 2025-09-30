@@ -2,195 +2,125 @@ import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image
-from transformers import pipeline
-from mtcnn import MTCNN
-from collections import defaultdict
+import tensorflow as tf
+import sys
+import os
+import tempfile
+import time
+from streamlit_option_menu import option_menu
 
-st.set_page_config(layout="wide", page_title="Facial Age Detection")
+# --- Page Config (Set once at the top) ---
+st.set_page_config(page_title="Facial Analysis", page_icon="👤", layout="wide", initial_sidebar_state="expanded")
 
-st.title("Facial Age Detection")
-st.write("Detect age groups from images, videos, or a live webcam feed.")
-st.write("This application uses an EfficientFormer-L1 model fine-tuned on the Facial Age dataset.")
-
-# --- Helper Functions and Classes ---
-
-@st.cache_resource
-def load_model():
-    """Load the age detection model pipeline."""
-    model_path = "artifacts/model_trainer/facial_age_detector_model"
-    pipe = pipeline('image-classification', model=model_path, device=0) # Use 0 for GPU
-    return pipe
-
-@st.cache_resource
-def load_face_detector():
-    """Load the MTCNN face detector."""
-    return MTCNN()
-
-def iou(boxA, boxB):
-    """Calculate Intersection over Union."""
-    xA = max(boxA[0], boxB[0])
-    yA = max(boxA[1], boxB[1])
-    xB = min(boxA[2], boxB[2])
-    yB = min(boxA[3], boxB[3])
-    interArea = max(0, xB - xA) * max(0, yB - yA)
-    boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
-    boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
-    return interArea / float(boxAArea + boxBArea - interArea)
-
-class EMATracker:
-    """Exponential Moving Average Tracker for smoothing predictions."""
-    def __init__(self, alpha=0.3):
-        self.alpha = alpha
-        self.tracked_objects = {} # {track_id: {box: [], ema_preds: {}}}
-
-    def update(self, detections, id_counter):
-        # Detections are a list of face boxes
-        # Simple tracking by IOU
-        
-        # Match detections to existing tracks
-        matches = {} # {track_id: det_idx}
-        used_det_indices = set()
-        
-        # This is a simple greedy matching. For more robust tracking, consider Hungarian algorithm.
-        for track_id, data in self.tracked_objects.items():
-            best_iou = 0
-            best_det_idx = -1
-            for i, det_box in enumerate(detections):
-                if i in used_det_indices: continue
-                current_iou = iou(data['box'], det_box)
-                if current_iou > best_iou and current_iou > 0.3: # IOU threshold
-                    best_iou = current_iou
-                    best_det_idx = i
-            if best_det_idx != -1:
-                matches[track_id] = best_det_idx
-                used_det_indices.add(best_det_idx)
-
-        # Update matched tracks
-        for track_id, det_idx in matches.items():
-            self.tracked_objects[track_id]['box'] = detections[det_idx]
-            
-        # Add new tracks
-        for i, det_box in enumerate(detections):
-            if i not in used_det_indices:
-                self.tracked_objects[id_counter] = {'box': det_box, 'ema_preds': defaultdict(float)}
-                id_counter += 1
-        
-        # Remove old tracks (optional, for long videos)
-        
-        return id_counter
-
-    def apply_ema(self, track_id, new_preds):
-        """Applies EMA to the predictions for a given track."""
-        if track_id not in self.tracked_objects:
-            return {}
-        
-        current_ema = self.tracked_objects[track_id]['ema_preds']
-        
-        # Initialize if new
-        if not current_ema:
-            for pred in new_preds:
-                current_ema[pred['label']] = pred['score']
-        else:
-            # Update existing values
-            for pred in new_preds:
-                label = pred['label']
-                current_ema[label] = (self.alpha * pred['score']) + ((1 - self.alpha) * current_ema[label])
-        
-        self.tracked_objects[track_id]['ema_preds'] = current_ema
-        
-        # Return the top prediction from EMA
-        if not current_ema: return None
-        top_label = max(current_ema, key=current_ema.get)
-        return f"{top_label} ({current_ema[top_label]:.2f})"
-
-
-# --- Load Models ---
+# --- Backend Loading (Robust and Unchanged) ---
 try:
-    age_pipe = load_model()
-    face_detector = load_face_detector()
-except Exception as e:
-    st.error(f"Error loading models: {e}. Please ensure the model is trained and located at 'artifacts/model_trainer/facial_age_detector_model'.")
+    src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'src'))
+    if src_path not in sys.path: sys.path.append(src_path)
+    from cnnClassifier.pipeline.prediction import PredictionPipeline
+except ImportError:
+    st.error("FATAL: Prediction pipeline not found. Check project structure.")
     st.stop()
+try:
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        for gpu in gpus: tf.config.experimental.set_memory_growth(gpu, True)
+except Exception: pass
+@st.cache_resource
+def load_pipeline():
+    return PredictionPipeline()
+pipeline = load_pipeline()
 
+# --- Session State for Webcam Control ---
+if 'webcam_running' not in st.session_state: st.session_state.webcam_running = False
+def start_webcam(): st.session_state.webcam_running = True
+def stop_webcam(): st.session_state.webcam_running = False
 
-# --- UI Sidebar ---
-st.sidebar.header("Input Options")
-app_mode = st.sidebar.selectbox("Choose the app mode", ["Image", "Video", "Live Webcam"])
+# --- Sidebar UI (Clean and Themed) ---
+with st.sidebar:
+    st.markdown("## ⚙️ Controls")
+    app_mode = option_menu(
+        menu_title=None,
+        options=["Image", "Video", "Live Feed"],
+        icons=["image", "film", "camera-video"], 
+        menu_icon="cast",
+        default_index=0,
+    )
+    st.divider()
+    st.info("This app uses a multi-task EfficientNet model to predict age and gender.")
 
-# --- Main App Logic ---
+# --- Main Page Content ---
+st.title(f"👤 Facial Demographics Analysis")
+st.markdown(f"### Mode: {app_mode}")
+st.divider()
 
-if app_mode == "Image":
-    uploaded_file = st.sidebar.file_uploader("Upload an image...", type=["jpg", "jpeg", "png"])
-    if uploaded_file is not None:
-        image = Image.open(uploaded_file).convert("RGB")
-        img_array = np.array(image)
+if not pipeline:
+    st.error("AI Pipeline failed to load. Please check the terminal for errors.")
+else:
+    if app_mode == "Image":
+        uploaded_file = st.file_uploader("Upload an image for analysis", type=["jpg", "jpeg", "png"])
+        if uploaded_file:
+            image = Image.open(uploaded_file).convert("RGB")
+            col1, col2 = st.columns(2)
+            with col1: st.image(image, caption='Original Image', use_column_width=True)
+            with col2:
+                with st.spinner('🔬 Analyzing...'):
+                    annotated_image, predictions = pipeline.predict_image(np.array(image))
+                st.image(annotated_image, caption='Processed Image', use_column_width=True)
+                if predictions:
+                    with st.expander("View Details", expanded=True):
+                        for i, p in enumerate(predictions):
+                            st.write(f"**Face {i+1}:** Gender: `{p['gender']}`, Age Group: `{p['age']}`")
+                else: st.warning("No faces detected.")
+
+    elif app_mode == "Video":
+        uploaded_file = st.file_uploader("Upload a video for analysis", type=["mp4", "mov", "avi"])
+        if uploaded_file:
+            tfile = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+            tfile.write(uploaded_file.read())
+            cap = cv2.VideoCapture(tfile.name)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            st.info(f"Video has {frame_count} frames.")
+            if st.button("Start Video Processing", type="primary", use_container_width=True):
+                progress_bar = st.progress(0, text="Initializing...")
+                out_tfile = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+                h, w = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                out = cv2.VideoWriter(out_tfile.name, cv2.VideoWriter_fourcc(*'mp4v'), cap.get(cv2.CAP_PROP_FPS), (w, h))
+                def frame_generator():
+                    for _ in range(frame_count):
+                        ret, frame = cap.read()
+                        if not ret: break
+                        yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                for i, annotated_frame_rgb in enumerate(pipeline.process_video_stream(frame_generator())):
+                    out.write(cv2.cvtColor(annotated_frame_rgb, cv2.COLOR_RGB2BGR))
+                    progress_bar.progress((i + 1) / frame_count, text=f"Processing Frame {i+1}/{frame_count}")
+                cap.release(), out.release()
+                st.success("Video processing complete!")
+                st.video(out_tfile.name)
+                with open(out_tfile.name, "rb") as f:
+                    st.download_button("Download Processed Video", f, "output.mp4", "video/mp4", use_container_width=True)
+
+    elif app_mode == "Live Feed":
+        col1, col2 = st.columns(2)
+        with col1: st.button("Start Feed", on_click=start_webcam, use_container_width=True, type="primary")
+        with col2: st.button("Stop Feed", on_click=stop_webcam, use_container_width=True)
         
-        st.image(image, caption='Uploaded Image.', use_column_width=True)
-        st.write("")
-        st.write("Detecting faces and predicting age...")
+        _, center_col, _ = st.columns([1, 2, 1])
+        with center_col:
+            FRAME_WINDOW = st.image([])
+            fps_display = st.empty()
         
-        faces = face_detector.detect_faces(img_array)
-        
-        if not faces:
-            st.warning("No faces detected in the image.")
-        else:
-            for face in faces:
-                x, y, w, h = face['box']
-                face_img = img_array[y:y+h, x:x+w]
-                pil_face = Image.fromarray(face_img)
-                
-                # Predict age
-                age_preds = age_pipe(pil_face)
-                top_pred = age_preds[0]
-                
-                # Draw on image
-                cv2.rectangle(img_array, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                label = f"Age: {top_pred['label']} ({top_pred['score']:.2f})"
-                cv2.putText(img_array, label, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,255,0), 2)
-            
-            st.image(img_array, caption='Processed Image.', use_column_width=True)
-
-elif app_mode == "Live Webcam":
-    st.sidebar.info("Webcam feed will start automatically. Press 'Stop' to end.")
-    run = st.sidebar.button('Start Webcam')
-    stop = st.sidebar.button('Stop Webcam')
-    FRAME_WINDOW = st.image([])
-    
-    cap = cv2.VideoCapture(0)
-    tracker = EMATracker()
-    track_id_counter = 0
-
-    while run and not stop:
-        ret, frame = cap.read()
-        if not ret:
-            st.error("Failed to capture image from webcam.")
-            break
-        
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        faces = face_detector.detect_faces(frame_rgb)
-        
-        detection_boxes = [f['box'] for f in faces]
-        track_id_counter = tracker.update(detection_boxes, track_id_counter)
-        
-        for track_id, data in tracker.tracked_objects.items():
-            x, y, w, h = data['box']
-            if w > 20 and h > 20: # Filter small detections
-                face_img = frame_rgb[y:y+h, x:x+w]
-                pil_face = Image.fromarray(face_img)
-                
-                age_preds = age_pipe(pil_face)
-                smoothed_label = tracker.apply_ema(track_id, age_preds)
-                
-                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                if smoothed_label:
-                    cv2.putText(frame, smoothed_label, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
-
-        FRAME_WINDOW.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    
-    cap.release()
-    st.sidebar.info("Webcam stopped.")
-
-# Add a placeholder for Video processing, which would be similar to Webcam but with a file uploader.
-elif app_mode == "Video":
-    st.sidebar.warning("Video processing is similar to the webcam feed but processes a file. This feature is not fully implemented in this demo but follows the same logic.")
-    # You would use cv2.VideoCapture(video_path) and loop through frames.
+        if st.session_state.webcam_running:
+            cap = cv2.VideoCapture(0)
+            while st.session_state.webcam_running:
+                start_time = time.time()
+                ret, frame = cap.read()
+                if not ret: break
+                frame = cv2.flip(frame, 1)
+                annotated_frame = pipeline.process_live_frame(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                FRAME_WINDOW.image(annotated_frame, channels="RGB")
+                fps = 1.0 / (time.time() - start_time) if (time.time() - start_time) > 0 else 0
+                fps_display.markdown(f"<p style='text-align: center;'><b>FPS: {fps:.2f}</b></p>", unsafe_allow_html=True)
+            cap.release()
+            cv2.destroyAllWindows()
+            st.session_state.webcam_running = False
+            st.rerun()

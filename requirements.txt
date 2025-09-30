@@ -25,12 +25,12 @@ scikit-learn
 Pillow
 tqdm
 imblearn
-
+seaborn
 # Frontend and Real-time Processing
 streamlit
 opencv-python
 mtcnn
 tensorflow==2.15.0 
-
+streamlit-option-menu
 # AWS Deployment
 boto3
