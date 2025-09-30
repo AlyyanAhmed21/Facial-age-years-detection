@@ -4,13 +4,12 @@ FROM python:3.11-slim
 # --- THE DEFINITIVE FIX: Install ALL known dependencies for OpenCV ---
 # This is the "kitchen sink" approach to ensure everything is included.
 RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
-    libxrender-dev \
+    libxrender1 \
     && rm -rf /var/lib/apt/lists/*
-
 # Set the working directory
 WORKDIR /app
 
