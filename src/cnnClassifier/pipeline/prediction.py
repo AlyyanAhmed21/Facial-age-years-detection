@@ -83,7 +83,7 @@ class CentroidTracker:
 
 class PredictionPipeline:
     def __init__(self, model_path: str = "artifacts/multi_task_model_trainer/checkpoint-26873"):
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cpu" 
         self.model_path = Path(model_path)
         self.base_model_name = "google/efficientnet-b2"
         params = read_yaml(Path("params.yaml"))

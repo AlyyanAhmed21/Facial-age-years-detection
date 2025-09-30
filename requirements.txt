@@ -1,9 +1,7 @@
 # For PyTorch with CUDA 11.8 - MUST be installed with the extra index URL
---extra-index-url https://download.pytorch.org/whl/cu118
-torch==2.1.0+cu118
-torchvision==0.16.0+cu118
+torch==2.1.0
+torchvision==0.16.0
 torchaudio==2.1.0
-
 # Pin NumPy to a version compatible with Torch 2.1.0
 numpy>=1.23,<2.0
 
