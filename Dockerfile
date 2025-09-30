@@ -23,4 +23,4 @@ EXPOSE 8501
 
 # Command to run the Streamlit app when the container starts
 # The --server.address=0.0.0.0 is crucial to make it accessible from outside
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["/home/user/.local/bin/streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
