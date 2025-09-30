@@ -5,33 +5,25 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# Install system dependencies and clean up in the same layer
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx \
+# Install system dependencies for OpenCV
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
     libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
 WORKDIR /app
 
-# Copy requirements file
+# Copy and install Python requirements, then clean up
 COPY requirements.txt .
-
-# --- THE FIX: Install packages and immediately clean up the cache ---
 RUN pip install --no-cache-dir -r requirements.txt \
     && rm -rf /root/.cache/pip
-# --- END FIX ---
 
-# Copy the application code
+# Copy the rest of the application code
 COPY . .
 
 # Expose the port
 EXPOSE 8501
 
-# Run the app
+# Run the app robustly
 CMD ["python", "-m", "streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
