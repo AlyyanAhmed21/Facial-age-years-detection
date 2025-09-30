@@ -1,30 +1,27 @@
 FROM python:3.11-slim
 
-# Install OS dependencies required by OpenCV
+# --- THE DEFINITIVE FIX FOR OPENCV ---
+# Install the correct, complete set of headless dependencies for OpenCV
 RUN apt-get update && apt-get install -y \
-    libgl1 \
+    libgl1-mesa-glx \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
-
-# Set the working directory inside the container
-WORKDIR /app
+# --- END FIX ---
 
 # Create a non-root user for security
 RUN useradd -m -u 1000 user
 USER user
 WORKDIR /home/user/app
 
-# Copy requirements file first to leverage Docker's cache
+# Copy and install Python requirements
 COPY --chown=user:user requirements.txt .
-
-# Install dependencies, including the CPU version of PyTorch
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of your application code
+# Copy the application code
 COPY --chown=user:user . .
 
-# Tell Docker that the container listens on port 8501
+# Expose the port
 EXPOSE 8501
 
-# Command to run the Streamlit app when the container starts
+# Use your robust CMD instruction to run the app
 CMD ["python", "-m", "streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
