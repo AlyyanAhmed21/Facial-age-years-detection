@@ -53,12 +53,18 @@ class PredictionPipeline:
         model.eval()
         return model
 
+    # --- THE CORRECTED PREDICT METHOD IS HERE ---
     def predict(self, image_array: np.ndarray) -> (np.ndarray, list):
         annotated_image = image_array.copy()
         predictions = []
         
         gray_image = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
-        faces = self.face_detector.detectMultiScale(gray_image, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))
+        faces = self.face_detector.detectMultiScale(
+            gray_image, 
+            scaleFactor=1.2, 
+            minNeighbors=8, 
+            minSize=(60, 60)
+        )
         
         if len(faces) == 0: 
             return annotated_image, predictions
@@ -80,20 +86,31 @@ class PredictionPipeline:
 
             predictions.append({"box": (x, y, w, h), "age": age_label, "gender": gender_label})
 
+            # --- DRAWING LOGIC WITH THE FIX ---
             font, font_scale, font_thickness = cv2.FONT_HERSHEY_DUPLEX, 0.6, 1
             text_color, bg_color = (255, 255, 255), (255, 75, 75)
             text_lines = [f"Gender: {gender_label}", f"Age: {age_label}"]
             
-            max_width, line_height = 0, 25
+            # 1. Calculate the maximum width required for any line of text
+            max_width = 0
             for line in text_lines:
                 (w_text, _), _ = cv2.getTextSize(line, font, font_scale, font_thickness)
-                if w_text > max_width: max_width = w_text
+                if w_text > max_width: 
+                    max_width = w_text
+
+            line_height = 25
             total_height = len(text_lines) * line_height - 5
             
+            # 2. Draw the bounding box for the face
             cv2.rectangle(annotated_image, (x, y), (x + w, y + h), bg_color, 2)
-            cv2.rectangle(annotated_image, (x-1, y - total_height), (x + max_width + 10, y), bg_color, -1)
+            
+            # 3. Use the calculated `max_width` to draw a background that is always big enough
+            cv2.rectangle(annotated_image, (x - 1, y - total_height), (x + max_width + 10, y), bg_color, -1)
+            
+            # 4. Draw the text on top of the background
             for i, line in enumerate(text_lines):
                 y_text = y - total_height + (i * line_height) + 18
                 cv2.putText(annotated_image, line, (x + 5, y_text), font, font_scale, text_color, font_thickness, cv2.LINE_AA)
+            # --- END DRAWING LOGIC ---
             
         return annotated_image, predictions
