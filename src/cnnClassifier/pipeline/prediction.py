@@ -22,22 +22,16 @@ class PredictionPipeline:
     def __init__(self, model_path: str = "artifacts/multi_task_model_trainer/checkpoint-26873"):
         self.device = "cpu"
         self.model_path = Path(model_path)
+        self.base_model_name = "google/efficientnet-b2"
         params = read_yaml(Path("params.yaml"))
+        self.label_maps = {'age_id2label': {...}, 'gender_id2label': {...}} # Omitted for brevity
         
-        self.label_maps = {
-            'age_id2label': {'0': '0-2', '1': '3-9', '2': '10-19', '3': '20-29', '4': '30-39', '5': '40-49', '6': '50-59', '7': '60-69', '8': 'more than 70'},
-            'gender_id2label': {'0': 'Male', '1': 'Female'}
-        }
-
-        # Use lightweight Haar Cascade
-        haar_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        self.face_detector = cv2.CascadeClassifier(haar_cascade_path)
-        
-        print(f"--- Pipeline Initialized Successfully on device: {self.device} ---")
-        self.processor = AutoImageProcessor.from_pretrained("google/efficientnet-b2")
+        print("--- Initializing Prediction Pipeline ---")
+        self.processor = AutoImageProcessor.from_pretrained(self.base_model_name)
         self.transforms = Compose([Resize((params.IMAGE_SIZE, params.IMAGE_SIZE)), ToTensor(), Normalize(mean=self.processor.image_mean, std=self.processor.image_std)])
         self.model = self._load_model()
         
+        # --- LIGHTWEIGHT FACE DETECTOR ---
         haar_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         self.face_detector = cv2.CascadeClassifier(haar_cascade_path)
         
@@ -61,20 +55,10 @@ class PredictionPipeline:
 
     # --- THE CORRECTED PREDICT METHOD IS HERE ---
     def predict(self, image_array: np.ndarray) -> (np.ndarray, list):
-        annotated_image = image_array.copy()
-        predictions = []
-        
+        annotated_image, predictions = image_array.copy(), []
         gray_image = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
-        faces = self.face_detector.detectMultiScale(
-            gray_image, 
-            scaleFactor=1.2, 
-            minNeighbors=8, 
-            minSize=(60, 60)
-        )
-        
-        if len(faces) == 0: 
-            return annotated_image, predictions
-
+        faces = self.face_detector.detectMultiScale(gray_image, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))
+        if len(faces) == 0: return annotated_image, predictions
         for (x, y, w, h) in faces:
             face_img = image_array[y:y+h, x:x+w]
             if face_img.size == 0: continue
