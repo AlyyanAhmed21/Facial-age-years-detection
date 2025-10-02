@@ -1,0 +1,19 @@
+# Ignore Git, DVC, and virtual environment files
+.git/
+.dvc/
+.dvcignore
+dvc.lock
+venv/
+data/
+
+# We will let the artifacts folder be copied
+# This ensures the trained model is included in the image
+.dvc/cache
+artifacts/data_ingestion
+artifacts/data_preparation
+
+
+.vscode/
+.idea/
+__pycache__/
+*.pyc
