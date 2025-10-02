@@ -12,7 +12,7 @@ data/
 artifacts/data_ingestion
 artifacts/data_preparation
 
-
+!model/
 .vscode/
 .idea/
 __pycache__/
