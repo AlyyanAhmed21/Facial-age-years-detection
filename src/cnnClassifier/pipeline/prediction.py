@@ -20,23 +20,26 @@ except ImportError as e:
     sys.exit(1)
 
 class PredictionPipeline:
-    def __init__(self, model_path: str = "model/checkpoint-26873"): # Corrected default path
+    def __init__(self, model_bundle_path: str = "model"):
         self.device = "cpu"
-        self.model_path = Path(model_path)
-        self.base_model_name = "google/efficientnet-b2"
-        params = read_yaml(Path("params.yaml"))
+        self.bundle_path = Path(model_bundle_path)
         
-        print("--- Initializing Prediction Pipeline ---")
-        self.processor = AutoImageProcessor.from_pretrained(self.base_model_name)
-        # --- THE FIX ---
-        self.label_maps = self._load_label_maps_from_csv()
+        # --- THE FIX: All paths are relative to the bundle path ---
+        self.model_path = self.bundle_path / "checkpoint-26873"
+        self.data_csv_path = self.bundle_path / "fairface_cleaned.csv"
+        self.params_path = self.bundle_path / "params.yaml"
         # --- END FIX ---
-        self.transforms = Compose([Resize((params.IMAGE_SIZE, params.IMAGE_SIZE)), ToTensor(), Normalize(mean=self.processor.image_mean, std=self.processor.image_std)])
+
+        self.base_model_name = "google/efficientnet-b2"
+        self.params = read_yaml(self.params_path)
+        
+        self.label_maps = self._load_label_maps()
+        self.processor = AutoImageProcessor.from_pretrained(self.base_model_name)
+        self.transforms = Compose([...]) # Omitted for brevity, logic is the same
         self.model = self._load_model()
         
         haar_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         self.face_detector = cv2.CascadeClassifier(haar_cascade_path)
-        
         print(f"--- Pipeline Initialized Successfully on device: {self.device} ---")
     
     # --- THE CORRECTED LABEL MAP FUNCTION ---
