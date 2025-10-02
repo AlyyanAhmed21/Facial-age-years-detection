@@ -1,5 +1,4 @@
 import torch
-import pandas as pd
 import numpy as np
 from PIL import Image
 from transformers import AutoImageProcessor
@@ -20,48 +19,28 @@ except ImportError as e:
     sys.exit(1)
 
 class PredictionPipeline:
-    def __init__(self, model_bundle_path: str = "model"):
+    def __init__(self, model_path: str = "model/checkpoint-26873"):
         self.device = "cpu"
-        self.bundle_path = Path(model_bundle_path)
-        
-        # Define all paths relative to the self-contained bundle path
-        self.model_path = self.bundle_path / "checkpoint-26873"
-        self.data_csv_path = self.bundle_path / "fairface_cleaned.csv"
-        self.params_path = self.bundle_path / "params.yaml"
-
+        self.model_path = Path(model_path)
         self.base_model_name = "google/efficientnet-b2"
-        self.params = read_yaml(self.params_path)
+        self.params = read_yaml(Path("model/params.yaml"))
+        
+        self.label_maps = {
+            'age_id2label': {'0': '0-2', '1': '3-9', '2': '10-19', '3': '20-29', '4': '30-39', '5': '40-49', '6': '50-59', '7': '60-69', '8': 'more than 70'},
+            'gender_id2label': {'0': 'Male', '1': 'Female'}
+        }
         
         print("--- Initializing Prediction Pipeline ---")
-        
         self.processor = AutoImageProcessor.from_pretrained(self.base_model_name)
-        self.label_maps = self._load_label_maps()
-        self.transforms = self._get_transforms()
+        self.transforms = Compose([Resize((self.params.IMAGE_SIZE, self.params.IMAGE_SIZE)), ToTensor(), Normalize(mean=self.processor.image_mean, std=self.processor.image_std)])
         self.model = self._load_model()
         
+        # Use lightweight Haar Cascade
         haar_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         self.face_detector = cv2.CascadeClassifier(haar_cascade_path)
         
         print(f"--- Pipeline Initialized Successfully on device: {self.device} ---")
-
-    def _load_label_maps(self):
-        print(f"Generating label maps from source data: {self.data_csv_path}")
-        df = pd.read_csv(self.data_csv_path)
-        label_maps = {}
-        tasks = {'age': lambda x: int(str(x).split('-')[0]), 'gender': None}
-        for task, sort_key in tasks.items():
-            labels_str = [str(label) for label in df[task].unique()]
-            sorted_labels = sorted(labels_str, key=sort_key)
-            label_maps[f'{task}_id2label'] = {str(i): label for i, label in enumerate(sorted_labels)}
-        return label_maps
-
-    def _get_transforms(self):
-        return Compose([
-            Resize((self.params.IMAGE_SIZE, self.params.IMAGE_SIZE)),
-            ToTensor(),
-            Normalize(mean=self.processor.image_mean, std=self.processor.image_std)
-        ])
-
+    
     def _load_model(self):
         num_age, num_gender, num_race = len(self.label_maps['age_id2label']), len(self.label_maps['gender_id2label']), 7
         model = MultiTaskEfficientNet(self.base_model_name, num_age, num_gender, num_race)
@@ -79,7 +58,7 @@ class PredictionPipeline:
         predictions = []
         
         gray_image = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
-        faces = self.face_detector.detectMultiScale(gray_image, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))
+        faces = self.face_detector.detectMultiScale(gray_image, scaleFactor=1.1, minNeighbors=8, minSize=(60, 60))
         
         if len(faces) == 0: 
             return annotated_image, predictions
@@ -94,15 +73,22 @@ class PredictionPipeline:
             with torch.no_grad():
                 outputs = self.model(pixel_values=pixel_values)
 
+            # --- THE DEFINITIVE FIX: LOOK UP THE LABELS ---
             pred_id_age = str(outputs['age_logits'].argmax(1).item())
             pred_id_gender = str(outputs['gender_logits'].argmax(1).item())
-            age_label = self.label_maps['age_id2label'].get(pred_id_age, "N/A")
-            gender_label = self.label_maps['gender_id2label'].get(pred_id_gender, "N/A")
+            
+            # Use .get() for safety in case of an unexpected ID
+            age_label = self.label_maps['age_id2label'].get(pred_id_age, "Unknown")
+            gender_label = self.label_maps['gender_id2label'].get(pred_id_gender, "Unknown")
+            # --- END FIX ---
 
             predictions.append({"box": (x, y, w, h), "age": age_label, "gender": gender_label})
 
+            # --- DRAWING LOGIC ---
             font, font_scale, font_thickness = cv2.FONT_HERSHEY_DUPLEX, 0.6, 1
             text_color, bg_color = (255, 255, 255), (255, 75, 75)
+            
+            # Use the looked-up labels for display
             text_lines = [f"Gender: {gender_label}", f"Age: {age_label}"]
             
             max_width, line_height = 0, 25
