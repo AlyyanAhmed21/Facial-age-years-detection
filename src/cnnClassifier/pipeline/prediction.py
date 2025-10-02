@@ -24,28 +24,29 @@ class PredictionPipeline:
         self.device = "cpu"
         self.bundle_path = Path(model_bundle_path)
         
-        # --- THE FIX: All paths are relative to the bundle path ---
+        # Define all paths relative to the self-contained bundle path
         self.model_path = self.bundle_path / "checkpoint-26873"
         self.data_csv_path = self.bundle_path / "fairface_cleaned.csv"
         self.params_path = self.bundle_path / "params.yaml"
-        # --- END FIX ---
 
         self.base_model_name = "google/efficientnet-b2"
         self.params = read_yaml(self.params_path)
         
-        self.label_maps = self._load_label_maps()
+        print("--- Initializing Prediction Pipeline ---")
+        
         self.processor = AutoImageProcessor.from_pretrained(self.base_model_name)
-        self.transforms = Compose([...]) # Omitted for brevity, logic is the same
+        self.label_maps = self._load_label_maps()
+        self.transforms = self._get_transforms()
         self.model = self._load_model()
         
         haar_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         self.face_detector = cv2.CascadeClassifier(haar_cascade_path)
+        
         print(f"--- Pipeline Initialized Successfully on device: {self.device} ---")
-    
-    # --- THE CORRECTED LABEL MAP FUNCTION ---
-    def _load_label_maps_from_csv(self, data_csv_path="artifacts/data_preparation/fairface_cleaned.csv"):
-        print(f"Generating label maps from source data: {data_csv_path}")
-        df = pd.read_csv(data_csv_path)
+
+    def _load_label_maps(self):
+        print(f"Generating label maps from source data: {self.data_csv_path}")
+        df = pd.read_csv(self.data_csv_path)
         label_maps = {}
         tasks = {'age': lambda x: int(str(x).split('-')[0]), 'gender': None}
         for task, sort_key in tasks.items():
@@ -54,15 +55,19 @@ class PredictionPipeline:
             label_maps[f'{task}_id2label'] = {str(i): label for i, label in enumerate(sorted_labels)}
         return label_maps
 
+    def _get_transforms(self):
+        return Compose([
+            Resize((self.params.IMAGE_SIZE, self.params.IMAGE_SIZE)),
+            ToTensor(),
+            Normalize(mean=self.processor.image_mean, std=self.processor.image_std)
+        ])
+
     def _load_model(self):
-        # This now gets the correct number of classes from the correctly loaded maps
         num_age, num_gender, num_race = len(self.label_maps['age_id2label']), len(self.label_maps['gender_id2label']), 7
-        
         model = MultiTaskEfficientNet(self.base_model_name, num_age, num_gender, num_race)
         weight_file = self.model_path / 'model.safetensors'
         if not weight_file.exists(): weight_file = self.model_path / 'pytorch_model.bin'
         if not weight_file.exists(): raise FileNotFoundError(f"Weights not found in {self.model_path}")
-        
         state_dict = load_safetensors(weight_file, device="cpu") if weight_file.suffix == ".safetensors" else torch.load(weight_file, map_location="cpu")
         model.load_state_dict(state_dict)
         model.to(self.device)
@@ -72,31 +77,44 @@ class PredictionPipeline:
     def predict(self, image_array: np.ndarray) -> (np.ndarray, list):
         annotated_image = image_array.copy()
         predictions = []
+        
         gray_image = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
         faces = self.face_detector.detectMultiScale(gray_image, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))
-        if len(faces) == 0: return annotated_image, predictions
+        
+        if len(faces) == 0: 
+            return annotated_image, predictions
+
         for (x, y, w, h) in faces:
             face_img = image_array[y:y+h, x:x+w]
             if face_img.size == 0: continue
+
             pil_face = Image.fromarray(face_img)
             pixel_values = self.transforms(pil_face).unsqueeze(0).to(self.device)
-            with torch.no_grad(): outputs = self.model(pixel_values=pixel_values)
+            
+            with torch.no_grad():
+                outputs = self.model(pixel_values=pixel_values)
+
             pred_id_age = str(outputs['age_logits'].argmax(1).item())
             pred_id_gender = str(outputs['gender_logits'].argmax(1).item())
             age_label = self.label_maps['age_id2label'].get(pred_id_age, "N/A")
             gender_label = self.label_maps['gender_id2label'].get(pred_id_gender, "N/A")
+
             predictions.append({"box": (x, y, w, h), "age": age_label, "gender": gender_label})
+
             font, font_scale, font_thickness = cv2.FONT_HERSHEY_DUPLEX, 0.6, 1
             text_color, bg_color = (255, 255, 255), (255, 75, 75)
             text_lines = [f"Gender: {gender_label}", f"Age: {age_label}"]
+            
             max_width, line_height = 0, 25
             for line in text_lines:
                 (w_text, _), _ = cv2.getTextSize(line, font, font_scale, font_thickness)
                 if w_text > max_width: max_width = w_text
             total_height = len(text_lines) * line_height - 5
+            
             cv2.rectangle(annotated_image, (x, y), (x + w, y + h), bg_color, 2)
-            cv2.rectangle(annotated_image, (x-1, y - total_height), (x + max_width + 10, y), bg_color, --1)
+            cv2.rectangle(annotated_image, (x-1, y - total_height), (x + max_width + 10, y), bg_color, -1)
             for i, line in enumerate(text_lines):
                 y_text = y - total_height + (i * line_height) + 18
                 cv2.putText(annotated_image, line, (x + 5, y_text), font, font_scale, text_color, font_thickness, cv2.LINE_AA)
+            
         return annotated_image, predictions
