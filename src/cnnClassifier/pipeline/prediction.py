@@ -22,20 +22,22 @@ class PredictionPipeline:
     def __init__(self, model_path: str = "artifacts/multi_task_model_trainer/checkpoint-26873"):
         self.device = "cpu"
         self.model_path = Path(model_path)
-        self.base_model_name = "google/efficientnet-b2"
         params = read_yaml(Path("params.yaml"))
         
         self.label_maps = {
             'age_id2label': {'0': '0-2', '1': '3-9', '2': '10-19', '3': '20-29', '4': '30-39', '5': '40-49', '6': '50-59', '7': '60-69', '8': 'more than 70'},
             'gender_id2label': {'0': 'Male', '1': 'Female'}
         }
+
+        # Use lightweight Haar Cascade
+        haar_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        self.face_detector = cv2.CascadeClassifier(haar_cascade_path)
         
-        print("--- Initializing Prediction Pipeline ---")
-        self.processor = AutoImageProcessor.from_pretrained(self.base_model_name)
+        print(f"--- Pipeline Initialized Successfully on device: {self.device} ---")
+        self.processor = AutoImageProcessor.from_pretrained("google/efficientnet-b2")
         self.transforms = Compose([Resize((params.IMAGE_SIZE, params.IMAGE_SIZE)), ToTensor(), Normalize(mean=self.processor.image_mean, std=self.processor.image_std)])
         self.model = self._load_model()
         
-        # Use lightweight Haar Cascade
         haar_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         self.face_detector = cv2.CascadeClassifier(haar_cascade_path)
         
@@ -43,10 +45,14 @@ class PredictionPipeline:
     
     def _load_model(self):
         num_age, num_gender, num_race = len(self.label_maps['age_id2label']), len(self.label_maps['gender_id2label']), 7
-        model = MultiTaskEfficientNet(self.base_model_name, num_age, num_gender, num_race)
+        
+        # Load the base architecture from the pre-downloaded cache
+        model = MultiTaskEfficientNet("google/efficientnet-b2", num_age, num_gender, num_race)
+        
         weight_file = self.model_path / 'model.safetensors'
         if not weight_file.exists(): weight_file = self.model_path / 'pytorch_model.bin'
         if not weight_file.exists(): raise FileNotFoundError(f"Weights not found in {self.model_path}")
+        
         state_dict = load_safetensors(weight_file, device="cpu") if weight_file.suffix == ".safetensors" else torch.load(weight_file, map_location="cpu")
         model.load_state_dict(state_dict)
         model.to(self.device)
