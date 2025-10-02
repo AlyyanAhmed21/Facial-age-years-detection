@@ -208,3 +208,6 @@ __marimo__/
 .aws-keyPair.pem
 aws-keyPair.pem
 aws-key.pem
+artifacts/*
+# ... EXCEPT for the trained model directory.
+!artifacts/multi_task_model_trainer/
