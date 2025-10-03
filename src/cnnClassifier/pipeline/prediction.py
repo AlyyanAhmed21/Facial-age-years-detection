@@ -21,29 +21,28 @@ except ImportError:
     from src.cnnClassifier.utils.common import read_yaml
 
 class PredictionPipeline:
-    def __init__(self, model_path: str = "model/checkpoint-26873"):
-        self.device = "cpu"  # Force CPU for deployment
-        self.model_path = Path(model_path)
+    def __init__(self, repo_id: str = "ALYYAN/Facial-Age-Det"):
+        self.device = "cpu"
+        self.repo_id = repo_id
+        
+        print("--- Initializing Prediction Pipeline by downloading artifacts from Hub ---")
+        
+        # --- THE FIX: Download all artifacts from your HF Model Repo ---
+        self.model_path = hf_hub_download(repo_id=self.repo_id, filename="checkpoint-26873/model.safetensors")
+        self.params_path = hf_hub_download(repo_id=self.repo_id, filename="params.yaml")
+        self.data_csv_path = hf_hub_download(repo_id=self.repo_id, filename="fairface_cleaned.csv")
+        # --- END FIX ---
+        
         self.base_model_name = "google/efficientnet-b2"
-        self.params = read_yaml(Path("model/params.yaml"))
+        self.params = read_yaml(Path(self.params_path))
         
-        self.label_maps = {
-            'age_id2label': {'0': '0-2', '1': '3-9', '2': '10-19', '3': '20-29', '4': '30-39', '5': '40-49', '6': '50-59', '7': '60-69', '8': 'more than 70'},
-            'gender_id2label': {'0': 'Male', '1': 'Female'}
-        }
-        
-        print("--- Initializing Prediction Pipeline ---")
+        self.label_maps = self._load_label_maps()
         self.processor = AutoImageProcessor.from_pretrained(self.base_model_name)
         self.transforms = Compose([Resize((self.params.IMAGE_SIZE, self.params.IMAGE_SIZE)), ToTensor(), Normalize(mean=self.processor.image_mean, std=self.processor.image_std)])
         self.model = self._load_model()
         
-        # --- THE FIX: LOAD BOTH DETECTORS ---
-        # High-quality detector for offline tasks
-        self.hq_face_detector = MTCNN() 
-        # Lightweight detector for live feed
         haar_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        self.lq_face_detector = cv2.CascadeClassifier(haar_cascade_path)
-        # --- END FIX ---
+        self.face_detector = cv2.CascadeClassifier(haar_cascade_path)
         
         print(f"--- Pipeline Initialized Successfully on device: {self.device} ---")
     
