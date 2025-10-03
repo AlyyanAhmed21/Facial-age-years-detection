@@ -1,36 +1,17 @@
-# For PyTorch with CUDA 11.8 - MUST be installed with the extra index URL
---extra-index-url https://download.pytorch.org/whl/cu118
-torch==2.1.0+cu118
-torchvision==0.16.0+cu118
+torch==2.1.0
+torchvision==0.16.0
 torchaudio==2.1.0
-
-# Pin NumPy to a version compatible with Torch 2.1.0
-numpy>=1.23,<2.0
-
-# Hugging Face
+numpy<2.0
 transformers==4.36.2
 tokenizers==0.15.0
-datasets>=2.14.5
-evaluate
-accelerate>=0.25
-
-# MLOps and Utilities
-mlflow
-dvc[s3] # Assuming you might use S3 with DVC for AWS
+safetensors
 python-box
 PyYAML
-ensure
 pandas
 scikit-learn
 Pillow
-tqdm
-imblearn
-seaborn
-# Frontend and Real-time Processing
 streamlit
-opencv-python
-mtcnn
-tensorflow==2.15.0 
 streamlit-option-menu
-# AWS Deployment
-boto3
+opencv-python-headless
+mtcnn
+tensorflow==2.15.0
